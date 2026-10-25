@@ -14,9 +14,12 @@ import { resolveBin, spawnBin } from "../lib/spawn.mjs";
 import { installCrashHandlers, recover } from "../lib/restore.mjs";
 import { capsFor } from "../lib/caps.mjs";
 import { MODES, armedOf, loadState, patchState, setArmed, setDefault } from "../lib/state.mjs";
+import { ensureDataHome } from "../lib/home.mjs";
 
 // bun --compile 产物：资源目录 = exe 所在目录；普通 node：包根
 const ROOT = process.versions.bun ? dirname(process.execPath) : dirname(dirname(fileURLToPath(import.meta.url)));
+// 数据（state.json + personas/）放用户目录，npm 升级不会连人设一起清掉
+const DATA = ensureDataHome(ROOT).home;
 const matrix = JSON.parse(readFileSync(join(ROOT, "matrix.json"), "utf8"));
 
 const argv = process.argv.slice(2);
@@ -82,7 +85,7 @@ switch (cmd) {
 
 /** 无参：state.default 说跑谁就跑谁；没有默认就跑到 Web 去选 */
 async function defaultHarness() {
-	const { state } = loadState(ROOT);
+	const { state } = loadState(DATA);
 	const harness = state.default?.harness;
 	if (!harness) {
 		console.log("还没有默认 harness。两种办法：\n  agent-purge web           在浏览器里选，再点“设为默认执行器”\n  agent-purge <harness>     直接点名跑（如 agent-purge codex）");
@@ -97,7 +100,7 @@ async function launch(name) {
 	if (!spec) die(`未知 harness: ${name}（可用: ${Object.keys(matrix.harnesses).join(", ")}；子命令见 --help）`);
 	if (spec.class === "unsupported") die(`${name} 做不到：${spec.reason}`);
 
-	const { state } = loadState(ROOT);
+	const { state } = loadState(DATA);
 	// 由 state.json 决定注入方式；显式 --mode 永远压过它
 	const explicitMode = flag("--mode", null);
 	if (explicitMode !== null && !MODES.includes(explicitMode)) die(`--mode 只能是 ${MODES.join(" / ")}`);
@@ -108,7 +111,7 @@ async function launch(name) {
 	if (autoFlag !== null) {
 		if (autoFlag !== "on" && autoFlag !== "off") die("--auto 只能是 on / off");
 		const { setPiAuto } = await import("../lib/state.mjs");
-		setPiAuto(ROOT, autoFlag === "on");
+		setPiAuto(DATA, autoFlag === "on");
 		console.log(`[auto] 裸敲 pi ${autoFlag === "on" ? "会" : "不会"}自动注入（已写入 state.json）`);
 	}
 
@@ -131,7 +134,7 @@ async function launch(name) {
 	}
 
 	const { createStore } = await import("../lib/personas.mjs");
-	const store = createStore(ROOT);
+	const store = createStore(DATA);
 	const personaName = flag("--persona", "active");
 	let pickedName = personaName === "active" ? store.activeId() : personaName;
 	let picked = store.read(pickedName);
@@ -216,7 +219,7 @@ async function launch(name) {
 			// 不装、不喊注入：扩展就算在盘上，也会因为 mode=off + 没 FORCE 而沉默
 			built.env = { ...built.env, AGENT_PURGE_MODE: "off" };
 		} else {
-			installSlash("pi", ROOT, { personaId: picked.id, personaBody: personaText });
+			installSlash("pi", DATA, { personaId: picked.id, personaBody: personaText });
 			built.env = { ...built.env, AGENT_PURGE_PERSONA: picked.id, AGENT_PURGE_MODE: mode, AGENT_PURGE_FORCE: "1" };
 		}
 	}
@@ -244,9 +247,9 @@ async function launch(name) {
 
 async function useCmd() {
 	const { createStore } = await import("../lib/personas.mjs");
-	const store = createStore(ROOT);
+	const store = createStore(DATA);
 	const arg = argv[1];
-	const { state, migrated } = loadState(ROOT);
+	const { state, migrated } = loadState(DATA);
 	migrated.forEach((m) => console.log(`[migrate] ${m}`));
 
 	const id = arg && !arg.startsWith("-") ? arg : state.persona;
@@ -259,7 +262,7 @@ async function useCmd() {
 
 	// user 层的 /purge 命令文件是烘焙进去的，换人设必须重渲染
 	const { refreshSlashes } = await import("../lib/slashes.mjs");
-	const refreshed = refreshSlashes(ROOT, state.armed ? Object.entries(state.armed).filter(([, a]) => a.includes("slash")).map(([k]) => k) : [], {
+	const refreshed = refreshSlashes(DATA, state.armed ? Object.entries(state.armed).filter(([, a]) => a.includes("slash")).map(([k]) => k) : [], {
 		personaId: id,
 		personaBody: store.read(id).body.trim(),
 	});
@@ -272,7 +275,7 @@ async function useCmd() {
 
 function modeCmd() {
 	const want = argv[1];
-	const { state } = loadState(ROOT);
+	const { state } = loadState(DATA);
 	const current = state.default?.mode ?? "replace";
 	if (!want) {
 		console.log(
@@ -287,7 +290,7 @@ function modeCmd() {
 		return;
 	}
 	if (!MODES.includes(want)) die(`mode 只能是 ${MODES.join(" / ")}`);
-	setDefault(ROOT, { harness: state.default?.harness ?? "codex", mode: want });
+	setDefault(DATA, { harness: state.default?.harness ?? "codex", mode: want });
 	console.log(`mode ← ${want}（state.json；下次启动生效，--mode 可临时覆盖）`);
 }
 
@@ -305,12 +308,12 @@ async function installCmd(verb, rest) {
 		}
 		const spec = matrix.harnesses[h];
 		const { createStore } = await import("../lib/personas.mjs");
-		const store = createStore(ROOT);
+		const store = createStore(DATA);
 		const pid = store.activeId();
-		const r = fn({ personaPath: store.materialize(pid), personaText: store.read(pid).body.trim(), root: ROOT, reason: spec.reason }) ?? {};
+		const r = fn({ personaPath: store.materialize(pid), personaText: store.read(pid).body.trim(), root: DATA, reason: spec.reason }) ?? {};
 		const ok = verb === "install" ? r.ok !== false : r.ok !== false;
 		console.log(`${ok ? "✓" : "✗"} ${verb} ${h}${r.file ? ` → ${r.file}` : ""}${r.note ? `  (${r.note})` : ""}`);
-		if (ok) setArmed(ROOT, h, "install", verb === "install");
+		if (ok) setArmed(DATA, h, "install", verb === "install");
 	}
 }
 
@@ -320,7 +323,7 @@ async function armCmd(verb, rest) {
 	const { install, uninstall } = await import("../lib/persist.mjs");
 	const { capsFor } = await import("../lib/caps.mjs");
 	const { createStore } = await import("../lib/personas.mjs");
-	const store = createStore(ROOT);
+	const store = createStore(DATA);
 	const pid = store.activeId();
 	if (!pid) die("还没有 persona：先 agent-purge use <id>");
 
@@ -332,15 +335,15 @@ async function armCmd(verb, rest) {
 	// 否则 `agent-purge <h>` 这条入口照样注入（实测：关了总开关还能接管，就是这里漏的）。
 	// 开的时候把上次的 mode 还回去。单家操作不动 mode。
 	if (rest.includes("--all")) {
-		const { state: cur } = loadState(ROOT);
+		const { state: cur } = loadState(DATA);
 		const m = cur.default?.mode ?? "off";
 		if (verb === "disarm" && m !== "off" && cur.default?.harness) {
-			setDefault(ROOT, { harness: cur.default.harness, mode: "off" });
-			patchState(ROOT, { prevMode: m });
+			setDefault(DATA, { harness: cur.default.harness, mode: "off" });
+			patchState(DATA, { prevMode: m });
 		}
 		if (verb === "arm" && m === "off" && cur.default?.harness) {
 			const back = MODES.includes(cur.prevMode) && cur.prevMode !== "off" ? cur.prevMode : "replace";
-			setDefault(ROOT, { harness: cur.default.harness, mode: back });
+			setDefault(DATA, { harness: cur.default.harness, mode: back });
 		}
 	}
 
@@ -364,29 +367,29 @@ async function armCmd(verb, rest) {
 				}
 			}
 			if (ch === "install") {
-				const r = verb === "arm" ? install(h, { root: ROOT, active: store.refreshActive() }) : uninstall(h);
+				const r = verb === "arm" ? install(h, { root: DATA, active: store.refreshActive() }) : uninstall(h);
 				if (r.error) skip.push(`常驻: ${r.error}`);
 				else {
-					setArmed(ROOT, h, "install", verb === "arm");
+					setArmed(DATA, h, "install", verb === "arm");
 					done.push(verb === "arm" ? `常驻 ${r.action}` : `撤常驻 ${r.action}`);
 				}
 			}
 			if (ch === "shim") {
-				const r = verb === "arm" ? installShim(ROOT, h) : uninstallShim(ROOT, h);
+				const r = verb === "arm" ? installShim(DATA, h) : uninstallShim(DATA, h);
 				if (r.error) skip.push(`shim: ${r.error}`);
 				else {
-					setArmed(ROOT, h, "shim", verb === "arm");
+					setArmed(DATA, h, "shim", verb === "arm");
 					done.push(verb === "arm" ? "裸命令接管" : "撤裸命令接管");
 				}
 			}
 			if (ch === "slash") {
 				const r =
 					verb === "arm"
-						? installSlash(h, ROOT, { personaId: pid, personaBody: store.read(pid).body.trim() })
-						: uninstallSlash(h, ROOT);
+						? installSlash(h, DATA, { personaId: pid, personaBody: store.read(pid).body.trim() })
+						: uninstallSlash(h, DATA);
 				if (r.error) skip.push(`/purge: ${r.error}`);
 				else {
-					setArmed(ROOT, h, "slash", verb === "arm");
+					setArmed(DATA, h, "slash", verb === "arm");
 					done.push(verb === "arm" ? `/purge ${r.layer} 层` : "撤 /purge");
 				}
 			}
@@ -423,10 +426,10 @@ async function armCmd(verb, rest) {
 async function slashCmd(rest) {
 	const { installSlash, uninstallSlash, slashStatus } = await import("../lib/slashes.mjs");
 	const { createStore } = await import("../lib/personas.mjs");
-	const store = createStore(ROOT);
+	const store = createStore(DATA);
 	const id = rest[0];
 	if (!id || id === "status") {
-		const rows = slashStatus(ROOT);
+		const rows = slashStatus(DATA);
 		const live = rows.filter((s) => s.offered);
 		live.forEach((s) => {
 			console.log(`${s.installed ? "✓" : " "} ${s.id.padEnd(9)} ${s.layer.padEnd(4)} ${s.trigger.padEnd(22)} persona=${s.personaId ?? "-"}`);
@@ -446,47 +449,47 @@ async function slashCmd(rest) {
 		const ids =
 			target && target !== "--all"
 				? rest.slice(1).filter((x) => !x.startsWith("-"))
-				: slashStatus(ROOT).filter((s) => s.installed).map((s) => s.id);
+				: slashStatus(DATA).filter((s) => s.installed).map((s) => s.id);
 		if (!ids.length) console.log("没有装着的 /purge");
 		ids.forEach((h) => {
-			const r = uninstallSlash(h, ROOT);
+			const r = uninstallSlash(h, DATA);
 			if (!r.error) {
-				setArmed(ROOT, h, "slash", false);
+				setArmed(DATA, h, "slash", false);
 				console.log(`✓ 已移除 /purge ${h}${r.removed?.length ? " → " + r.removed.join(", ") : "（本来就没有）"}`);
 			}
 		});
 		return;
 	}
-	const targets = id === "--all" ? slashStatus(ROOT).filter((s) => s.offered).map((s) => s.id) : [id];
+	const targets = id === "--all" ? slashStatus(DATA).filter((s) => s.offered).map((s) => s.id) : [id];
 	const pid = store.activeId();
 	if (!pid) die("还没有 persona：先 agent-purge use <id>");
 	for (const h of targets) {
-		const r = installSlash(h, ROOT, { personaId: pid, personaBody: store.read(pid).body.trim() });
+		const r = installSlash(h, DATA, { personaId: pid, personaBody: store.read(pid).body.trim() });
 		if (r.error) {
 			console.log(`- ${h}: ${r.error}`);
 			continue;
 		}
-		setArmed(ROOT, h, "slash", true);
+		setArmed(DATA, h, "slash", true);
 		console.log(`✓ /purge → ${h}（${r.layer} 层）${r.file}`);
 		console.log(`   ${r.note}`);
 	}
 }
 
 async function statusCmd() {
-	const { migrated } = loadState(ROOT);
+	const { migrated } = loadState(DATA);
 	migrated.forEach((m) => console.log(`[migrate] ${m}`));
 	// armed 是缓存，磁盘才是真相：先把假记录摘掉，再报数
 	const { reconcileArmed } = await import("../lib/armed.mjs");
-	const fixed = await reconcileArmed(ROOT);
+	const fixed = await reconcileArmed(DATA);
 	if (fixed.length) console.log(`[对账] armed 纠正：${fixed.join(", ")}`);
-	const { state } = loadState(ROOT);
+	const { state } = loadState(DATA);
 	return Promise.all([import("../lib/shim.mjs"), import("../lib/slashes.mjs")]).then(([shimMod, slashMod]) => {
 		const shims = shimMod.shimStatus();
-		const slashes = slashMod.slashStatus(ROOT);
+		const slashes = slashMod.slashStatus(DATA);
 
 		console.log(`persona  ${state.persona ?? "(未设置)"}`);
 		console.log(`default  ${state.default ? `${state.default.harness} · ${state.default.mode}` : "(未设置)"}   裸敲 agent-purge 用它`);
-		console.log(`state    ${join(ROOT, "state.json")}`);
+		console.log(`state    ${join(DATA, "state.json")}`);
 		console.log("");
 		console.log("harness     shim   slash  install   /purge层  常驻落点");
 		for (const [h] of Object.entries(matrix.harnesses)) {
@@ -513,8 +516,8 @@ async function statusCmd() {
 
 async function lsCmd() {
 	const { createStore } = await import("../lib/personas.mjs");
-	const store = createStore(ROOT);
-	const { state } = loadState(ROOT);
+	const store = createStore(DATA);
+	const { state } = loadState(DATA);
 	const fit = store.resolve({ harness: state.default?.harness, model: null });
 	for (const p of store.list()) {
 		const mark = p.id === store.activeId() ? "*" : " ";
@@ -532,6 +535,7 @@ function webCmd() {
 			detached: true,
 			stdio: "ignore",
 			shell: false,
+			env: { ...process.env, AGENT_PURGE_HOME: DATA },
 		});
 		child.unref();
 		console.log(`agent-purge web 已在后台启动 → http://127.0.0.1:${port}（pid ${child.pid}）`);

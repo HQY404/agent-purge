@@ -13,8 +13,11 @@ import { installShim, shimStatus, uninstallShim } from "../lib/shim.mjs";
 import { installSlash, refreshSlashes, slashStatus, uninstallSlash } from "../lib/slashes.mjs";
 import { reconcileArmed } from "../lib/armed.mjs";
 import { capsFor } from "../lib/caps.mjs";
+import { ensureDataHome } from "../lib/home.mjs";
 
 const ROOT = process.versions.bun ? dirname(process.execPath) : dirname(dirname(fileURLToPath(import.meta.url)));
+// 数据（state.json + personas/）在用户目录，不在安装目录
+const DATA = ensureDataHome(ROOT).home;
 // 运行期真正被改写的层（≠ bench 能测到的层）：每家只有它自己暴露的那一个写入点。
 // sys = 系统提示/配置文件/插件 splice；user = 只落在用户消息里（zcode 的 hook）。
 const LAYER = {
@@ -24,7 +27,7 @@ const LAYER = {
 	zcode: "",
 };
 const matrix = JSON.parse(readFileSync(join(ROOT, "matrix.json"), "utf8"));
-const store = createStore(ROOT);
+const store = createStore(DATA);
 
 export function serveWeb(port = 7788) {
 	const server = createServer(handle);
@@ -84,12 +87,12 @@ function armorState() {
 
 async function state(withVersions) {
 	// 先跟磁盘对账，再报数：armed 是缓存，磁盘才是真相
-	const reconciled = await reconcileArmed(ROOT);
+	const reconciled = await reconcileArmed(DATA);
 	const found = detect({ versions: withVersions });
-	const persisted = persistStatus(ROOT);
-	const { state: st } = loadState(ROOT);
+	const persisted = persistStatus(DATA);
+	const { state: st } = loadState(DATA);
 	const shims = shimStatus();
-	const slashes = slashStatus(ROOT);
+	const slashes = slashStatus(DATA);
 	const harnesses = Object.entries(matrix.harnesses).map(([id, m]) => {
 		const d = found[id] ?? {};
 		const inst = persisted.find((x) => x.name === id);
@@ -143,7 +146,7 @@ function saveDefaults(payload) {
 	if (spec.class === "unsupported") return { error: `${harness} 做不到：${spec.reason}` };
 	if (mode && !MODES.includes(mode)) return { error: `mode 只能是 ${MODES.join(" / ")}` };
 	try {
-		return { ok: true, defaults: setDefault(ROOT, { harness, mode: mode ?? "replace" }) };
+		return { ok: true, defaults: setDefault(DATA, { harness, mode: mode ?? "replace" }) };
 	} catch (e) {
 		return { error: e.message };
 	}
@@ -173,12 +176,12 @@ function usePersona(payload) {
 	try {
 		store.setActive(payload.id);
 		// 两个指针必须一起写，否则 UI 选的“当前人设”和 `agent-purge` 实际用的不是同一个
-		setPersona(ROOT, payload.id);
-		const { state: st } = loadState(ROOT);
+		setPersona(DATA, payload.id);
+		const { state: st } = loadState(DATA);
 		const slashTargets = Object.entries(st.armed ?? {})
 			.filter(([, a]) => a.includes("slash"))
 			.map(([k]) => k);
-		const refreshed = refreshSlashes(ROOT, slashTargets, { personaId: payload.id, personaBody: store.read(payload.id).body.trim() });
+		const refreshed = refreshSlashes(DATA, slashTargets, { personaId: payload.id, personaBody: store.read(payload.id).body.trim() });
 		return { ok: true, active: payload.id, refreshed };
 	} catch (e) {
 		return { error: e.message };
@@ -194,15 +197,15 @@ function applyArmAll(payload) {
 	// 全局总闸 = 电源，不只是注册表：撤的时候把 default.mode 置 off（记下 prevMode），
 	// 否则 `agent-purge <h>` 这条入口永远注入 —— 用户实测“关了也能直接接管”就出在这。
 	// 开的时候把上次的 mode 还回去。
-	const { state: cur } = loadState(ROOT);
+	const { state: cur } = loadState(DATA);
 	const m = cur.default?.mode ?? "off";
 	if (verb === "off" && m !== "off" && cur.default?.harness) {
-		setDefault(ROOT, { harness: cur.default.harness, mode: "off" });
-		patchState(ROOT, { prevMode: m });
+		setDefault(DATA, { harness: cur.default.harness, mode: "off" });
+		patchState(DATA, { prevMode: m });
 	}
 	if (verb === "on" && m === "off" && cur.default?.harness) {
 		const back = MODES.includes(cur.prevMode) && cur.prevMode !== "off" ? cur.prevMode : "replace";
-		setDefault(ROOT, { harness: cur.default.harness, mode: back });
+		setDefault(DATA, { harness: cur.default.harness, mode: back });
 	}
 
 	const perHarness = [];
@@ -217,7 +220,7 @@ function applyArmAll(payload) {
 		else perHarness.push({ harness: h, done: (r.done ?? []).map((d) => d.channel), skipped: r.skipped ?? [] });
 	}
 	if (!perHarness.length) return { error: failed.join("；") || "没有可注册的 harness" };
-	const after = loadState(ROOT).state.default;
+	const after = loadState(DATA).state.default;
 	return { ok: true, action: verb, channel, mode: after?.mode ?? null, harnesses: perHarness, failed };
 }
 
@@ -225,16 +228,16 @@ function applyInstall(payload) {
 	const { harness, action } = payload;
 	if (action === "uninstall") {
 		const r = uninstall(harness);
-		setArmed(ROOT, harness, "install", false);
+		setArmed(DATA, harness, "install", false);
 		return { ok: true, result: r };
 	}
 	// 装谁就把谁设为 active：active.md 与 install 指向始终是同一份正文
 	const wanted = payload.persona ?? store.activeId();
 	if (!store.read(wanted)) return { error: "没有可用 persona" };
 	store.setActive(wanted);
-	const r = install(harness, { root: ROOT, active: store.refreshActive() });
+	const r = install(harness, { root: DATA, active: store.refreshActive() });
 	if (r.error) return { error: r.error };
-	setArmed(ROOT, harness, "install", true);
+	setArmed(DATA, harness, "install", true);
 	return { ok: true, result: r };
 }
 
@@ -274,26 +277,26 @@ function armChannel(harness, channel, verb, id) {
 	}
 	if (channel === "shim") {
 		if (verb === "off") {
-			const r = uninstallShim(ROOT, harness);
+			const r = uninstallShim(DATA, harness);
 			if (r.error) return { error: r.error };
-			setArmed(ROOT, harness, "shim", false);
+			setArmed(DATA, harness, "shim", false);
 			return { removed: r.removed };
 		}
-		const r = installShim(ROOT, harness);
+		const r = installShim(DATA, harness);
 		if (r.error) return { error: r.error };
-		setArmed(ROOT, harness, "shim", true);
+		setArmed(DATA, harness, "shim", true);
 		return { file: r.file, real: r.real };
 	}
 	if (channel === "slash") {
 		if (verb === "off") {
-			const r = uninstallSlash(harness, ROOT);
+			const r = uninstallSlash(harness, DATA);
 			if (r.error) return { error: r.error };
-			setArmed(ROOT, harness, "slash", false);
+			setArmed(DATA, harness, "slash", false);
 			return { removed: r.removed };
 		}
-		const r = installSlash(harness, ROOT, { personaId: id, personaBody: store.read(id).body.trim() });
+		const r = installSlash(harness, DATA, { personaId: id, personaBody: store.read(id).body.trim() });
 		if (r.error) return { error: r.error };
-		setArmed(ROOT, harness, "slash", true);
+		setArmed(DATA, harness, "slash", true);
 		return { file: r.file, layer: r.layer };
 	}
 	return { error: `未知通道: ${channel}` };

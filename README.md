@@ -28,6 +28,14 @@ npm i -g agent-purge     # 或 npx agent-purge web
 
 要求 Node ≥ 20，零依赖。
 
+**数据独立存放**，升级不会被覆盖：默认 `~/.agent-purge/`（Windows `C:\Users\<你>\.agent-purge\`），里面是 `state.json` 和 `personas/`。想换位置就设环境变量：
+
+```bash
+export AGENT_PURGE_HOME=/path/to/your/data     # Windows: setx AGENT_PURGE_HOME D:\ap-data
+```
+
+旧版本（0.1.x）把数据放在包目录里，首次运行会自动搬到新家，原文件不动。
+
 ## 人设
 
 `personas/<id>.md` = frontmatter（`id` / `name` / `description` / `harness` / `model`）+ 正文。正文就是会被写进系统提示词的那一段。
