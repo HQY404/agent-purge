@@ -1,0 +1,10 @@
+# 本机状态
+state.json
+.sandbox/
+notes/
+
+# 私人 persona（仓库只带 lib/templates 里的中性模板）
+personas/
+
+web/_err.log
+web/_out.log

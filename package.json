@@ -1,0 +1,43 @@
+{
+  "name": "agent-purge",
+  "version": "0.1.0",
+  "description": "One persona, many coding agents: replace or inject system prompts across codex, claude, opencode, grok, omp, hermes, pi, zcode.",
+  "type": "module",
+  "bin": {
+    "agent-purge": "bin/agent-purge.mjs"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "backends",
+    "web",
+    "bench",
+    "matrix.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "web": "node bin/agent-purge.mjs web",
+    "matrix": "node bin/agent-purge.mjs matrix",
+    "detect": "node bin/agent-purge.mjs detect",
+    "build:exe": "node scripts/build-exe.mjs",
+    "prepack": "node -e \"require('node:fs').rmSync('personas/.build',{recursive:true,force:true})\""
+  },
+  "keywords": [
+    "system-prompt",
+    "codex",
+    "claude",
+    "opencode",
+    "coding-agent",
+    "pi",
+    "persona",
+    "prompt-injection"
+  ],
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/ZiChuanLan/agent-purge.git" },
+  "homepage": "https://github.com/ZiChuanLan/agent-purge#readme",
+  "bugs": { "url": "https://github.com/ZiChuanLan/agent-purge/issues" }
+}
