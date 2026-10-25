@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { detect } from "../lib/detect.mjs";
 import { oneshots } from "../backends/index.mjs";
 import { createStore } from "../lib/personas.mjs";
-import { MODES, armedOf, loadState, patchState, setArmed, setDefault, setPersona } from "../lib/state.mjs";
+import { MODES, armedOf, loadState, patchState, setArmed, setDefault, setPersona, setPiAuto } from "../lib/state.mjs";
 import { install, status as persistStatus, uninstall } from "../lib/persist.mjs";
 import { plans, summary as armorSummary } from "../lib/armor.mjs";
 import { installShim, shimStatus, uninstallShim } from "../lib/shim.mjs";
@@ -54,6 +54,7 @@ async function handle(req, res) {
 	if (req.method === "GET" && p === "/api/state") return send(res, 200, await state(url.searchParams.get("versions") === "1"));
 	if (req.method === "GET" && p === "/api/armor") return send(res, 200, armorState());
 	if (req.method === "POST" && p === "/api/defaults") return send(res, 200, saveDefaults(await body(req)));
+	if (req.method === "POST" && p === "/api/pi-auto") return send(res, 200, { piAuto: setPiAuto(DATA, (await body(req)).on === true) });
 	if (req.method === "POST" && p === "/api/persona") return send(res, 200, savePersona(await body(req)));
 	if (req.method === "DELETE" && p === "/api/persona") return send(res, 200, deletePersona(url.searchParams.get("id")));
 	if (req.method === "POST" && p === "/api/use") return send(res, 200, usePersona(await body(req)));
@@ -134,6 +135,7 @@ async function state(withVersions) {
 		defaults: st.default,
 		armed: st.armed ?? {},
 		modes: MODES,
+		piAuto: st.piAuto === true,
 		shimDir: shimStatus()[0]?.dir ?? null,
 		slashes: slashes,
 	};

@@ -115,10 +115,22 @@ async function launch(name) {
 		console.log(`[auto] 裸敲 pi ${autoFlag === "on" ? "会" : "不会"}自动注入（已写入 state.json）`);
 	}
 
+	// pi 的人设落在哪一层：sys（默认，真系统提示词）或 user（塞进用户消息，给忽略 system 的模型）
+	const layerFlag = name === "pi" ? flag("--layer", null) : null;
+	if (layerFlag !== null) {
+		if (layerFlag !== "sys" && layerFlag !== "user") die("--layer 只能是 sys / user");
+		const { setPiUserLayer } = await import("../lib/state.mjs");
+		setPiUserLayer(DATA, layerFlag === "user");
+		console.log(
+			layerFlag === "user"
+				? "[layer] 人设额外塞进用户消息（给忽略 system 的模型用；代价是每条消息多一段）"
+				: "[layer] 人设走 system 层（默认）",
+		);
+	}
+
 	// 实测策略：该 harness 的哪一层真的能注入（数据来自 matrix.json armor 段）
 	const { plan } = await import("../lib/armor.mjs");
-	const strategy = plan(matrix, name);
-	if (!strategy.error) {
+	const strategy = plan(matrix, name);	if (!strategy.error) {
 		if (strategy.requiresSeed) console.log(`[策略] ${name}：裸注入 sys 层实测 ${strategy.bare.sys}%，带人设词种子 ${strategy.persona.sys}% —— 需要 seed 层`);
 		const noSys = strategy.blocked.find((b) => b.layer === "sys");
 		if (noSys && mode !== "off") console.log(`[策略] ${name}：sys 层不可用（${noSys.reason}），本次只能靠 user 层`);

@@ -399,7 +399,12 @@ textarea{resize:vertical;min-height:340px;font-family:var(--font-mono);font-size
   *,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important;
     transform:none!important}
 }
-</style>
+.pirow{display:flex;align-items:center;justify-content:space-between;gap:18px;border:1px solid var(--line);border-radius:12px;padding:11px 14px;margin:12px 0 4px;background:var(--field)}
+.pirow b{display:block;font-size:13px;font-weight:600}
+.pirow .tiny{display:block;margin-top:3px;line-height:1.5}
+.pirow .switch{background:var(--line);border:1px solid var(--line)}
+.pirow.on .switch{background:var(--accent);border-color:var(--accent)}
+.pirow.on .switch::after{left:23px;background:#fff}</style>
 </head>
 <body>
 
@@ -655,7 +660,7 @@ function renderOverview() {
   const hid = S.defaults.harness;
   const h = S.harnesses.find((x) => x.id === hid) || S.harnesses[0];
   const persona = S.personas.find((p) => p.id === (selPersona || S.persona)) || S.personas[0];
-  const hot = S.harnesses.filter((h) => (h.armed || []).length).map((h) => h.id + "(" + h.armed.join("/") + ")");
+  const hot = S.harnesses.filter((h) => (h.armed || []).length).map((h) => h.id + "(" + h.armed.join("/") + (h.id === "pi" && S.piAuto ? "+裸启动" : "") + ")");
 
   const why = mode === "off"
     ? "总电源关着 —— 下面写的都只是配置，实际一条都不会注入。"
@@ -671,7 +676,7 @@ function renderOverview() {
           const say = (c) => c === "shim"
             ? (h.id === "pi" ? "敲 pi 会注入（PATH 刚加的前置壳）" : "敲 " + h.id + " 会注入（PATH 前置壳）")
             : c === "slash"
-              ? (h.id === "pi" ? "裸敲 pi 不注入，只有会话里 /purge 才改写" : "会话里 /purge 展开成用户消息")
+              ? (h.id === "pi" ? (S.piAuto ? "裸敲 pi 也注入（扩展常驻）" : "裸敲 pi 不注入，只有会话里 /purge 才改写") : "会话里 /purge 展开成用户消息")
               : "改了它的配置文件，连别人启动的也生效";
           return chans.map(say).join("；") + "。";
         })()
@@ -736,8 +741,10 @@ function harnessCard(h) {
     ? h.armed.map((a) => `<span class="badge ok">${ARM_INFO[a]?.name || a}</span>`).join("")
     : `<span class="badge">未武装</span>`;
   const CHAN_ORDER = ["shim", "slash", "install"];
+  const isPi = h.id === "pi";
   // 只摆真能用的：能点但没反应的按钮 = 误导，理由改用一行字写在卡片下方
-  const hiddenChans = CHAN_ORDER.filter((c) => h.caps?.[c] && !h.caps[c].ok);
+  // pi 例外：它的“裸命令接管”是扩展常驻（piAuto），不是 PATH 壳，所以照样给按钮
+  const hiddenChans = CHAN_ORDER.filter((c) => !(isPi && c === "shim") && h.caps?.[c] && !h.caps[c].ok);
   const hiddenText = hiddenChans.map((c) => {
     const cap = h.caps[c];
     if (cap.hiddenLabel) return `${cap.hiddenLabel}（压不住系统提示词）`;
@@ -745,8 +752,14 @@ function harnessCard(h) {
     if (c === "slash") return null;
     return `${ARM_INFO[c].name}：${String(cap.why || "").replace(/\s+/g, " ").split(/[；。]/)[0]}`;
   }).filter(Boolean);
-  const chans = CHAN_ORDER.filter((c) => !h.caps?.[c] || h.caps[c].ok).map((c) => {
-    const on = h.armed?.includes(c);
+  const chans = CHAN_ORDER.filter((c) => (isPi && c === "shim") || !h.caps?.[c] || h.caps[c].ok).map((c) => {
+    const on = isPi && c === "shim" ? Boolean(S.piAuto) : h.armed?.includes(c);
+    // pi 的裸命令接管＝扩展常驻：点它直接切 piAuto，而不是装 PATH 壳
+    if (isPi && c === "shim") {
+      return `<button class="chan ${on ? "on" : ""}" data-piauto="${on ? "off" : "on"}" type="button" title="扩展常驻，不改 PATH：开关写在 state.json 的 piAuto">
+      <span class="dot"></span><span><b>裸命令接管${on ? " · 开" : ""}</b>
+      <small>${on ? "扩展常驻：敲 pi 就注入（每次启动）" : "关着：只有 /purge 或 agent-purge pi 才注入"}</small></span></button>`;
+    }
     // 能力由后端（lib/caps.mjs）给；UI 不再自己猜一遍，否则两处判断迟早分叉
     const cap = h.caps?.[c] ?? null;
     const avail = cap ? cap.ok : c === "install" ? !!h.persistable : c === "slash" ? !!h.slash : true;
@@ -986,6 +999,16 @@ $("#saveModeBtn").addEventListener("click", async () => {
 $("#hpick").addEventListener("click", (e) => {
   const b = e.target.closest("[data-hpick]"); if (!b) return;
   selHarness = b.dataset.hpick; renderHarness();
+});
+$("#hsel").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-piauto]"); if (!b) return;
+  await withBusy(b, async () => {
+    try {
+      await api("/api/pi-auto", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ on: b.dataset.piauto === "on" }) });
+      toast("裸启动自动注入 → " + (b.dataset.piauto === "on" ? "开" : "关"));
+      await load();
+    } catch (err) { toast("失败：" + err.message, true); }
+  });
 });
 $("#hsel").addEventListener("click", onChan);
 $("#hdeadBox").addEventListener("click", onChan);
