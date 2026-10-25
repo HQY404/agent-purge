@@ -74,3 +74,7 @@ matrix.json  能力矩阵
 ## License
 
 MIT
+
+---
+
+感谢 [LINUX DO](https://linux.do) 社区
