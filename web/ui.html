@@ -590,6 +590,11 @@ let S = null, A = null, view = "overview", selPersona = null, draftMode = null, 
 let lastPop = null, pDirty = false;
 let withVersions = new URLSearchParams(location.search).get("versions") === "1";
 
+/* 说明字段两套键名：README/模板写 description，旧 UI 写 desc。两套都认 */
+const descOf = (p) => p?.meta?.description || p?.meta?.desc || "";
+/* 前端值统一转成 input 可编辑的一行字：数组用「, 」拼（model: ["a","b"] → "a, b"） */
+const fieldText = (v) => (Array.isArray(v) ? v.join(", ") : v == null ? "" : String(v));
+
 async function api(path, opts) {
   const r = await fetch(path, opts);
   const txt = await r.text();
@@ -613,7 +618,19 @@ async function load() {
     api("/api/armor"),
   ]);
   S = s; A = a;
+  /* 旧实例/坏盘可能回 null：这里是页面的唯一入口，先兜底再渲染，
+     否则 renderHeader 里 S.defaults.mode 一抛，整页就停在静态 HTML 上了 */
+  if (!S || typeof S !== "object") throw new Error("state 接口返回异常");
+  if (!Array.isArray(S.harnesses)) S.harnesses = [];
+  if (!Array.isArray(S.personas)) S.personas = [];
+  const dflt = S.defaults && typeof S.defaults === "object" ? S.defaults : {};
+  const fallbackH = S.harnesses.find((h) => h.found && h.supported && h.inject) || S.harnesses.find((h) => h.supported) || S.harnesses[0];
+  S.defaults = {
+    harness: dflt.harness ?? fallbackH?.id ?? null,
+    mode: (S.modes || []).includes(dflt.mode) ? dflt.mode : "replace",
+  };
   if (!selPersona) selPersona = S.active || (S.personas[0] && S.personas[0].id) || null;
+  if (draftMode !== null && !(S.modes || []).includes(draftMode)) draftMode = null;
   if (draftMode === null) draftMode = S.defaults.mode;
   render();
 }
@@ -625,19 +642,25 @@ function renderHeader() {
   const armedCount = S.harnesses.filter((x) => (x.armed || []).length).length;
   const persona = S.personas.find((p) => p.id === S.persona);
   const diverge = S.active && S.persona && S.active !== S.persona;
+  // defaultsSet=false：state.json 里还没存过默认，这里显示的只是建议值（见 load() 里的兜底）
+  const unset = S.defaultsSet === false;
+  const unsetTag = unset ? `<span class="tiny"> · 未保存</span>` : "";
   $("#facts").innerHTML = `
-    <div class="fact"><s>默认执行器</s><em>${esc(h ? h.id : S.defaults.harness || "未设")}</em></div>
+    <div class="fact"><s>默认执行器</s><em>${esc(h ? h.id : S.defaults.harness || "未设")}${unsetTag}</em></div>
     <div class="fact ${mode === "off" ? "off" : ""}"><s>注入模式</s><em>${esc(MODE_INFO[mode]?.name || mode)}</em></div>
     <div class="fact ${diverge ? "warn" : ""}"><s>人设</s><em>${esc(persona ? persona.id : S.persona || "未设")}</em></div>
     <div class="fact ${mode === "off" ? "off" : ""}"><s>已武装</s><em>${mode === "off" ? "全部停用" : armedCount + " 个执行器"}</em></div>`;
-  $("#power").classList.toggle("on", mode !== "off");
+  // 未设默认时总电源不可点：applyArmAll 没有 default.harness 就写不回落点，点了也没反应
+  $("#power").classList.toggle("on", mode !== "off" && !unset);
   const pb = $("#powerBtn");
-  pb.setAttribute("aria-checked", String(mode !== "off"));
-  pb.disabled = false;
-  $("#powerSub").textContent = mode === "off" ? "已关 · 原样启动" : "注入已开";
-  $("#powerBtn").title = mode === "off"
-    ? "当前关：任何入口（agent-purge / 裸命令 / --ask）都不注入。点一下恢复"
-    : "当前开：点一下关掉全部注入（保留各通道原状，开回来自动恢复）";
+  pb.setAttribute("aria-checked", String(mode !== "off" && !unset));
+  pb.disabled = unset;
+  $("#powerSub").textContent = unset ? "未设置 · 先在 01 保存" : mode === "off" ? "已关 · 原样启动" : "注入已开";
+  pb.title = unset
+    ? "还没保存过默认执行器：在 01 里选好模式点“保存设置”，总开关才有落点"
+    : mode === "off"
+      ? "当前关：任何入口（agent-purge / 裸命令 / --ask）都不注入。点一下恢复"
+      : "当前开：点一下关掉全部注入（保留各通道原状，开回来自动恢复）";
 }
 
 /* ── 渲染：总览 ───────────────────────────────────── */
@@ -685,7 +708,7 @@ function renderOverview() {
   $("#nowBox").innerHTML = `
     <div class="nowline"><s>身份</s><div>
       <div class="big">${esc(persona ? (persona.meta?.name || persona.id) : "未选人设")}</div>
-      <div class="sub">${esc(persona ? (persona.meta?.desc || persona.id) : "去“人设”页挑一个")} · ${persona ? persona.chars : 0} 字</div>
+      <div class="sub">${esc(persona ? (descOf(persona) || persona.id) : "去“人设”页挑一个")} · ${persona ? persona.chars : 0} 字</div>
     </div></div>
     <div class="nowline"><s>怎么进</s><div>
       <div class="big">${esc(MODE_INFO[mode]?.name || mode)} <span class="tiny">· ${esc(mode)}</span></div>
@@ -712,13 +735,17 @@ function renderOverview() {
       <b>${MODE_INFO[m].name}</b><i>${m}${m === S.defaults.mode ? " · 当前" : ""}</i>
       <small>${MODE_INFO[m].desc}</small>
     </div>`).join("");
-  $("#modeHint").textContent = draftMode !== S.defaults.mode
-    ? "改过还没保存（点上面的“保存设置”才会生效）"
-    : mode === "off" ? "现在是 off：保存别的模式并武装之后才会真正注入。" : "";
-  $("#saveModeBtn").disabled = draftMode === S.defaults.mode;
-  $("#dirtyHint").textContent = draftMode === S.defaults.mode
-    ? (mode === "off" ? "当前是 off（原样启动）" : "已保存")
-    : "未保存：" + MODE_INFO[draftMode].name;
+  $("#modeHint").textContent = S.defaultsSet === false
+    ? "还没设过默认（上面显示的是建议值）：选一个模式 + “保存设置”，裸敲 agent-purge 才真的有落点。"
+    : draftMode !== S.defaults.mode
+      ? "改过还没保存（点上面的“保存设置”才会生效）"
+      : mode === "off" ? "现在是 off：保存别的模式并武装之后才会真正注入。" : "";
+  $("#saveModeBtn").disabled = draftMode === S.defaults.mode && S.defaultsSet !== false;
+  $("#dirtyHint").textContent = S.defaultsSet === false
+    ? "默认还没保存"
+    : draftMode === S.defaults.mode
+      ? (mode === "off" ? "当前是 off（原样启动）" : "已保存")
+      : "未保存：" + (MODE_INFO[draftMode]?.name || draftMode);
   $("#cmdPreview").textContent = previewCmd(h, draftMode, persona);
   $("#copyCmd").dataset.copy = previewCmd(h, draftMode, persona);
 }
@@ -866,7 +893,7 @@ function renderPersonas() {
     <button class="pitem ${p.id === selPersona ? "cur" : ""}" data-p="${p.id}">
       <b>${esc(p.meta?.name || p.id)}${p.id === S.persona ? '<span class="tag">当前</span>' : ""}</b>
       <small>${esc(p.id)} · ${p.chars} 字</small>
-      <p>${esc(p.meta?.desc || p.body.slice(0, 90))}</p>
+      <p>${esc(descOf(p) || p.body.slice(0, 90))}</p>
     </button>`).join("") || `<div class="empty">还没有人设，点下面新建</div>`;
   const p = S.personas.find((x) => x.id === selPersona);
   if (!p) return;
@@ -875,8 +902,8 @@ function renderPersonas() {
   lastPop = p.id; pDirty = false;
   $("#pId").value = p.id;
   $("#pName").value = p.meta?.name || "";
-  $("#pDesc").value = p.meta?.desc || "";
-  $("#pModel").value = p.meta?.model || "";
+  $("#pDesc").value = descOf(p);
+  $("#pModel").value = fieldText(p.meta?.model);
   $("#pBody").value = p.body || "";
   $("#pChars").textContent = (p.body || "").length + " 字";
   // 已有 id 的 persona 不能直接改文件名（否则会写出第二份），要换 id 请点“新建”
@@ -1055,7 +1082,7 @@ $("#pSave").addEventListener("click", async () => {
   if (!id) return toast("id 不能为空", true);
   try {
     await api("/api/persona", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id, meta: { name: $("#pName").value, desc: $("#pDesc").value, model: $("#pModel").value }, body: $("#pBody").value }) });
+      body: JSON.stringify({ id, meta: { name: $("#pName").value, description: $("#pDesc").value, model: $("#pModel").value }, body: $("#pBody").value }) });
     toast("已保存 " + id); selPersona = id; pDirty = false; lastPop = null; await load();
   } catch (e) { toast("失败：" + e.message, true); }
 });
@@ -1095,8 +1122,9 @@ $("#withVersions").addEventListener("click", async () => {
   await load();
 });
 
-load().then(() => setView(location.hash.slice(1) || "overview", false)).catch((e) => toast("加载失败：" + e.message, true));
-setInterval(() => load().catch(() => {}), 8000);
+load().then(() => setView(location.hash.slice(1) || "overview", false)).catch((e) => { console.error("[agent-purge] 首次加载失败", e); toast("加载失败：" + e.message, true); });
+// 轮询不静默吞错：页面渲染失败以前只表现为“永远空白”，DevTools 里都看不到是谁在抛
+setInterval(() => load().catch((e) => console.error("[agent-purge] 轮询失败", e)), 8000);
 </script>
 
 </body>

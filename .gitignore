@@ -8,3 +8,6 @@ personas/
 
 web/_err.log
 web/_out.log
+
+# 验证产物（浏览器 dump / 断言输出）
+out/

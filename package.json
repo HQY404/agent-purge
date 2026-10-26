@@ -1,6 +1,6 @@
 {
   "name": "agent-purge",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "One persona, many coding agents: replace or inject system prompts across codex, claude, opencode, grok, omp, hermes, pi, zcode.",
   "type": "module",
   "bin": {

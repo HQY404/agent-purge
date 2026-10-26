@@ -38,7 +38,9 @@ export AGENT_PURGE_HOME=/path/to/your/data     # Windows: setx AGENT_PURGE_HOME 
 
 ## 人设
 
-`personas/<id>.md` = frontmatter（`id` / `name` / `description` / `harness` / `model`）+ 正文。正文就是会被写进系统提示词的那一段。
+`personas/<id>.md` = frontmatter + 正文。正文就是会被写进系统提示词的那一段。
+
+frontmatter 用 `description` 写「说明」（Web 列表和 `agent-purge ls` 显示的就是它）；旧的 `desc` 仍然认，不会报错。可选 `order`（排序）、`harness` / `model`（匹配用）。Web 里只改名字和说明时会保留 frontmatter 的其它键，不整段重写。
 
 ```bash
 agent-purge ls                 # 列出全部 persona，标出当前匹配的

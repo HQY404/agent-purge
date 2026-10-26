@@ -126,19 +126,38 @@ async function state(withVersions) {
 			caps: capsFor(id, { bin: d.bin ?? null }),
 		};
 	});
+	const defaults = defaultsOf(st, harnesses);
 	return {
 		harnesses,
 		reconciled,
 		personas: store.list().map((x) => ({ id: x.id, meta: x.meta, body: x.body, chars: x.body.trim().length })),
 		active: store.activeId(),
 		persona: st.persona,
-		defaults: st.default,
+		defaults,
+		// false = state.json 里还没有默认（defaults 只是 UI 的建议值，裸敲 agent-purge 仍会提示“未设置”）
+		defaultsSet: Boolean(st.default?.harness),
 		armed: st.armed ?? {},
 		modes: MODES,
 		piAuto: st.piAuto === true,
 		shimDir: shimStatus()[0]?.dir ?? null,
 		slashes: slashes,
 	};
+}
+
+/**
+ * state.json 里 default 为 null（全新安装、从没设过）时，给 UI 一个能画出来的值：
+ * 第一个“装了 + 被支持 + 可注入”的 harness + replace。
+ * 只用于展示，不落盘——裸敲 agent-purge 该提示“还没设置”照样提示（UI 看 defaultsSet）。
+ */
+function defaultsOf(st, harnesses) {
+	const cur = st.default?.harness;
+	const mode = MODES.includes(st.default?.mode) ? st.default.mode : "replace";
+	if (cur && harnesses.some((h) => h.id === cur)) return { harness: cur, mode };
+	const pick =
+		harnesses.find((h) => h.found && h.supported && h.inject) ??
+		harnesses.find((h) => h.supported) ??
+		harnesses[0];
+	return { harness: pick?.id ?? null, mode };
 }
 
 function saveDefaults(payload) {
@@ -159,7 +178,32 @@ function savePersona(payload) {
 	if (!id) return { error: "id 不能为空（小写字母/数字/-/_）" };
 	if (!payload.body?.trim()) return { error: "正文不能为空" };
 	try {
-		const saved = store.save(id, { meta: { ...payload.meta, id }, body: payload.body });
+		// 只覆盖表单带上来的键，其余 frontmatter（harness / order / description...）原样保留：
+		// 旧实现直接拿表单三个字段重写文件，点一次保存就把手写的键全吃掉
+		const meta = { ...(store.read(id)?.meta ?? {}) };
+		const given = payload.meta && typeof payload.meta === "object" ? payload.meta : {};
+		for (const [k, v] of Object.entries(given)) {
+			if (k === "id" || v === undefined) continue;
+			if (k === "desc" || k === "description") continue;
+			if (k === "model") continue;
+			meta[k] = typeof v === "string" ? v.trim() : v;
+		}
+		// 说明：README/模板的键是 description；旧 UI 发的是 desc，两边都认，写回只留 description
+		const desc = given.description ?? given.desc;
+		if (desc !== undefined) {
+			meta.description = String(desc ?? "").trim();
+			delete meta.desc;
+			if (!meta.description) delete meta.description;
+		}
+		// 建议模型：多值用逗号分隔（UI 是单行 input），空 = 不限制（读时 asArray 兜底 ["*"]）
+		if (given.model !== undefined) {
+			const list = (Array.isArray(given.model) ? given.model : String(given.model ?? "").split(","))
+				.map((s) => String(s).trim())
+				.filter(Boolean);
+			if (list.length) meta.model = list;
+			else delete meta.model;
+		}
+		const saved = store.save(id, { meta: { ...meta, id }, body: payload.body });
 		return { ok: true, persona: { id: saved.id, meta: saved.meta, body: saved.body } };
 	} catch (e) {
 		return { error: e.message };

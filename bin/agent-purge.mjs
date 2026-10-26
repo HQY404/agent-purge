@@ -534,7 +534,8 @@ async function lsCmd() {
 	for (const p of store.list()) {
 		const mark = p.id === store.activeId() ? "*" : " ";
 		const best = fit?.persona?.id === p.id && fit?.matched ? " ← 最匹配当前 harness" : "";
-		console.log(`${mark} ${p.id.padEnd(14)} ${String(p.meta?.name ?? "").padEnd(12)} ${(p.meta?.desc ?? "").slice(0, 44)}${best}`);
+		const desc = p.meta?.description ?? p.meta?.desc ?? "";
+		console.log(`${mark} ${p.id.padEnd(14)} ${String(p.meta?.name ?? "").padEnd(12)} ${desc.slice(0, 44)}${best}`);
 	}
 	console.log(`\n* = active（agent-purge use <id> 切换）`);
 }
