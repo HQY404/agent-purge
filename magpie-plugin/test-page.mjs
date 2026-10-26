@@ -36,10 +36,28 @@ class Node {
 	}
 }
 
-const ids = ["now-persona", "now-mode", "mode", "q", "list", "status", "count"];
+const ids = [
+	"now-persona",
+	"now-mode",
+	"mode",
+	"q",
+	"list",
+	"status",
+	"count",
+	"file",
+	"body",
+	"pid",
+	"pname",
+	"import-save",
+	"import-reset",
+	"del-all",
+	"import-count",
+	"import-err",
+];
 const nodes = Object.fromEntries(ids.map((id) => [id, new Node()]));
-// index.html 上 #status 带 hidden，app.js 必须自己解开它
+// index.html 上 #status / #import-err 带 hidden，app.js 必须自己解开它
 nodes.status.hidden = true;
+nodes["import-err"].hidden = true;
 const document = { getElementById: (id) => nodes[id], createElement: (tag) => new Node(tag) };
 class Option {
 	constructor(text, value) {
@@ -159,7 +177,47 @@ ok(nodes.status.dataset.state === "error", "失败时状态行标成 error");
 ok(nodes.status.textContent.includes("保存失败"), "失败时显示原因");
 ok(nodes["now-persona"].textContent === "中性助手", "失败后 UI 回滚到已保存的值（原 bug：乐观更新不回滚）");
 
-// 7) 读不到 options 时不开放交互（否则这期间的点击会用空 base 把 agents 写没）
+// 7) 导入 md：选文件 → 自动填 id/名字 → 存进 options，并直接选中
+const raw = "---\nname: 我的人设\ndescription: 自测\n---\nBe mine.";
+nodes.file.files = [{ name: "my persona.md", text: async () => raw }];
+await nodes.file.onchange({ target: nodes.file });
+ok(nodes.body.value === raw, "选文件后正文进了输入框");
+ok(nodes.pname.value === "我的人设", "名字取自 frontmatter");
+ok(nodes.pid.value === "my-persona", "id 从文件名猜出来（空格换连字符）");
+
+const beforeImport = calls.length;
+nodes["import-save"].onclick();
+await tick();
+const imported = calls.at(-1);
+ok(calls.length > beforeImport && imported.persona === "my-persona", "导入后直接选中这个人设");
+ok(Array.isArray(imported.inlinePersonas) && imported.inlinePersonas[0]?.text === raw, "正文写进 options.inlinePersonas");
+ok(imported.inlinePersonas[0]?.name === "我的人设", "名字一起存下来，列表才有东西显示");
+ok(nodes.list.children.length === 4 && textOf(nodes.list.children[0]).includes("我的人设"), "导入的人设排在最前面");
+ok(nodes.count.textContent === "全部 4", "标题计数包含导入的人设");
+ok(nodes["import-count"].textContent === "已导入 1 个", "导入计数更新");
+ok(nodes.body.value === "" && nodes.pid.value === "", "存完清空表单");
+
+// 重名内置 id、非法 id 都要拦住，而且一次 options.set 都不能发
+const guarded = calls.length;
+nodes.file.files = [{ name: "x.md", text: async () => "hi" }];
+await nodes.file.onchange({ target: nodes.file });
+nodes.pid.value = "terse";
+nodes["import-save"].onclick();
+ok(nodes["import-err"].hidden === false && nodes["import-err"].textContent.includes("重名"), "和内置人设重名时拒绝");
+nodes.pid.value = "../bad";
+nodes["import-save"].onclick();
+ok(nodes["import-err"].textContent.includes("id"), "非法 id 时拒绝并说明规则");
+ok(calls.length === guarded, "被拒绝时一次 options.set 都没发");
+
+// 删除全部导入：被选中的人设要回到跟随，不能留一个悬空 id
+nodes["del-all"].onclick();
+await tick();
+const afterDelete = calls.at(-1);
+ok(Array.isArray(afterDelete.inlinePersonas) && afterDelete.inlinePersonas.length === 0, "删除全部导入");
+ok(afterDelete.persona === "", "被删掉的人设不再选中（回到跟随）");
+ok(nodes["import-count"].textContent === "还没有导入", "计数回到空");
+
+// 8) 读不到 options 时不开放交互（否则这期间的点击会用空 base 把 agents 写没）
 const nodes2 = Object.fromEntries(ids.map((id) => [id, new Node()]));
 nodes2.status.hidden = true;
 runInNewContext(appSrc, {

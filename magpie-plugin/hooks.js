@@ -16,6 +16,7 @@
 //   mode     覆盖 state.json 里的模式
 //   persona  用哪个人设 id（默认 state.json 的当前人设）
 //   agents   只对这些 magpie agent 生效，如 ["claude","codex"]；不给 = 全部
+//   inlinePersonas  页面导入的人设 [{id,name,text}]；和 personas/<id>.md 同名时以它为准
 import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve as abs } from "node:path";
@@ -35,7 +36,7 @@ const stripFront = (raw) => String(raw).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?
 // 每个请求只有 1 秒预算，所以只在 state.json / 人设文件的 mtime 变了才读盘。
 let cache = { key: "", value: { mode: "off", text: "" } };
 
-function current(personaId) {
+function current(personaId, inline = []) {
 	const home = dataHome();
 	const stateFile = join(home, "state.json");
 	let sst = null;
@@ -59,6 +60,9 @@ function current(personaId) {
 
 	const id = personaId || active;
 	if (!id) return { mode, text: "" };
+	// 页面导入的人设存在 options 里：命中就不读盘（每个请求只有 1 秒预算）
+	const hit = inline.find((p) => p && typeof p === "object" && p.id === id && typeof p.text === "string" && p.text.trim());
+	if (hit) return { mode, text: stripFront(hit.text) };
 	const file = join(home, "personas", `${id}.md`);
 	let pst = null;
 	try {
@@ -156,7 +160,8 @@ export async function onRequest(body, ctx) {
 	try {
 		if (!body || typeof body !== "object") return;
 		const opt = ctx?.options && typeof ctx.options === "object" ? ctx.options : {};
-		const cfg = current(typeof opt.persona === "string" ? opt.persona : null);
+		const inline = Array.isArray(opt.inlinePersonas) ? opt.inlinePersonas : [];
+		const cfg = current(typeof opt.persona === "string" ? opt.persona : null, inline);
 		const mode = MODES.includes(opt.mode) ? opt.mode : cfg.mode;
 		if (mode === "off" || !cfg.text) {
 			ctx?.report?.("skipped", 0);

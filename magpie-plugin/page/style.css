@@ -179,17 +179,190 @@ select {
 	color: var(--muted);
 }
 
+/* 导入区：收在 <details> 里，不抢「点一个就换」的主操作 */
+.import {
+	margin-top: 12px;
+	border: 1px solid var(--line);
+	border-radius: 12px;
+}
+
+.import > summary {
+	padding: 11px 16px;
+	font-size: 13px;
+	cursor: pointer;
+	border-radius: 12px;
+}
+
+.import > summary::marker {
+	color: var(--muted);
+}
+
+.import[open] > summary {
+	border-bottom: 1px solid var(--line);
+	border-radius: 12px 12px 0 0;
+}
+
+.import-body {
+	display: grid;
+	gap: 12px;
+	padding: 14px 16px 16px;
+}
+
+.hint {
+	margin: 0;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--muted);
+}
+
+.hint code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.import .field {
+	grid-template-columns: 52px 1fr;
+	align-items: start;
+}
+
+.import .field > span {
+	padding-top: 9px;
+}
+
+.pair {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 10px;
+}
+
+.pair.actions {
+	grid-template-columns: auto auto 1fr auto;
+	align-items: center;
+}
+
+input[type="file"],
+#pid,
+#pname,
+#body {
+	box-sizing: border-box;
+	width: 100%;
+	font: inherit;
+	font-size: 13px;
+	color: inherit;
+	background: transparent;
+	border: 1px solid var(--line);
+	border-radius: 9px;
+}
+
+input[type="file"] {
+	padding: 7px 9px;
+	font-size: 12px;
+}
+
+input[type="file"]::file-selector-button {
+	margin-right: 10px;
+	padding: 5px 10px;
+	font: inherit;
+	font-size: 12px;
+	color: inherit;
+	background: transparent;
+	border: 1px solid var(--line);
+	border-radius: 7px;
+	cursor: pointer;
+}
+
+#pid,
+#pname {
+	padding: 8px 10px;
+}
+
+#body {
+	min-height: 96px;
+	padding: 9px 12px;
+	line-height: 1.45;
+	resize: vertical;
+}
+
+#pid::placeholder,
+#pname::placeholder,
+#body::placeholder {
+	color: var(--muted);
+}
+
+#import-save,
+#import-reset,
+#del-all {
+	padding: 8px 14px;
+	font: inherit;
+	font-size: 13px;
+	color: inherit;
+	cursor: pointer;
+	background: transparent;
+	border: 1px solid var(--line);
+	border-radius: 9px;
+}
+
+#import-save {
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+#del-all {
+	color: #e5534b;
+	border-color: color-mix(in srgb, #e5534b 45%, var(--line));
+}
+
+#import-save[disabled],
+#import-reset[disabled],
+#del-all[disabled] {
+	opacity: 0.5;
+	cursor: default;
+}
+
+#import-count {
+	justify-self: end;
+	font-size: 11px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--muted);
+}
+
+#import-err {
+	margin: 0;
+}
+
 .persona:focus-visible,
 select:focus-visible,
-#q:focus-visible {
+#q:focus-visible,
+#file:focus-visible,
+#pid:focus-visible,
+#pname:focus-visible,
+#body:focus-visible,
+#import-save:focus-visible,
+#import-reset:focus-visible,
+#del-all:focus-visible,
+.import > summary:focus-visible {
 	outline: 2px solid var(--accent);
 	outline-offset: 2px;
 }
 
 @media (max-width: 520px) {
-	.field {
+	.field,
+	.import .field {
 		grid-template-columns: 1fr;
 		gap: 4px;
+	}
+
+	.import .field > span {
+		padding-top: 0;
+	}
+
+	.pair,
+	.pair.actions {
+		grid-template-columns: 1fr;
+	}
+
+	#import-count {
+		justify-self: start;
 	}
 
 	.list {

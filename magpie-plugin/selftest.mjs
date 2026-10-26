@@ -79,6 +79,35 @@ for (const protocol of Object.keys(bodies)) {
 	check(`${protocol} agents 白名单外放行`, JSON.stringify(other), otherBefore);
 }
 
+// 页面导入的人设（options.inlinePersonas）：正文里自带的 frontmatter 也要剥掉
+const inlined = (extra = {}) =>
+	ctx("anthropic", {
+		mode: "strict",
+		persona: "mine",
+		inlinePersonas: [{ id: "mine", name: "Mine", text: "---\nname: Ignored\n---\nSay only OK." }],
+		...extra,
+	});
+const inMemory = bodies.anthropic();
+await onRequest(inMemory, inlined());
+check("导入人设 strict", systemOf.anthropic(inMemory), "Say only OK.");
+
+// 和磁盘上的同 id 人设并存时，导入的那份优先
+writeFileSync(join(home, "personas", "dup.md"), "FROM-DISK");
+const dup = bodies.anthropic();
+await onRequest(
+	dup,
+	ctx("anthropic", { mode: "strict", persona: "dup", inlinePersonas: [{ id: "dup", name: "Dup", text: "FROM-PAGE" }] }),
+);
+check("导入人设优先于同名磁盘文件", systemOf.anthropic(dup), "FROM-PAGE");
+
+// 坏数据不炸：非数组、非法 id、空正文都当没有，原样放行
+for (const inlinePersonas of ["junk", [{ id: "../etc", text: "x" }], [{ id: "blank", text: "   " }], [{ id: 42 }]]) {
+	const bad = bodies.anthropic();
+	const label = JSON.stringify(inlinePersonas).slice(0, 30);
+	assert.equal(await onRequest(bad, ctx("anthropic", { mode: "strict", persona: "blank", inlinePersonas })), undefined, `坏 ${label} 应放行`);
+	check(`坏 inlinePersonas 放行 ${label}`, bad.system, HOST);
+}
+
 // 未知协议：放行
 const odd = { system: "x" };
 assert.equal(await onRequest(odd, ctx("cohere", { mode: "strict" })), undefined);
