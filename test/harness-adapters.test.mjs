@@ -148,6 +148,52 @@ try {
 		plugin.apply(ctx);
 		assert.equal((await ctx.systemPrompt.assemble()).sections[0].text, "HOST");
 	});
+
+	// 零伤害的核心：宿主的 assemble 可能是同步的，包装层不能把它变成 Promise
+	await t("宿主 assemble 同步：开启时同步注入，关闭时同步原样返回", async () => {
+		store.setActive("beta");
+		persist.install("dsh", { root: DATA, active: store.refreshActive() });
+		const desktop = join(dir, ".dsh", "profiles", "desktop", "node_modules", RESIDENT, "index.js");
+		const hostAsm = { sections: [{ name: "host", text: "HOST" }] };
+		const mk = () => ({ systemPrompt: { assemble: () => hostAsm } });
+		writeState({ dsh: ["install"] }, "replace");
+		let plugin = await loadPlugin(desktop, "sync-on");
+		let ctx = mk();
+		plugin.apply(ctx);
+		let out = ctx.systemPrompt.assemble();
+		assert.ok(!(out && typeof out.then === "function"), "开启态把同步 assemble 变成了 Promise");
+		assert.match(out.sections[0].text, /正文 B/);
+
+		writeState({ dsh: ["install"] }, "off");
+		plugin = await loadPlugin(desktop, "sync-off");
+		ctx = mk();
+		plugin.apply(ctx);
+		out = ctx.systemPrompt.assemble();
+		assert.ok(!(out && typeof out.then === "function"), "关闭态把同步 assemble 变成了 Promise");
+		assert.equal(out, hostAsm, "关闭态返回的不是宿主原对象（多包了一层）");
+		assert.equal(out.sections[0].text, "HOST");
+	});
+
+	await t("dshProfiles 只让勾中的形态注入", async () => {
+		store.setActive("beta");
+		persist.install("dsh", { root: DATA, active: store.refreshActive() });
+		const mk = () => ({ systemPrompt: { assemble: async () => ({ sections: [{ name: "host", text: "HOST" }] }) } });
+		const file = (p) => join(dir, ".dsh", "profiles", p, "node_modules", RESIDENT, "index.js");
+		writeFileSync(
+			stateFile,
+			JSON.stringify({ v: 1, persona: "beta", default: { harness: "dsh", mode: "replace" }, armed: { dsh: ["install"] }, dshProfiles: ["web"] }),
+		);
+
+		let plugin = await loadPlugin(file("desktop"), "prof-desktop-off");
+		let ctx = mk();
+		plugin.apply(ctx);
+		assert.equal((await ctx.systemPrompt.assemble()).sections[0].text, "HOST", "desktop 没勾却注入了");
+
+		plugin = await loadPlugin(file("web"), "prof-web-on");
+		ctx = mk();
+		plugin.apply(ctx);
+		assert.match((await ctx.systemPrompt.assemble()).sections[0].text, /正文 B/, "web 勾了却没注入");
+	});
 	await t("opencode2 插件同样按 armed 开关", async () => {
 		store.setActive("beta");
 		persist.install("opencode2", { root: DATA, active: store.refreshActive() });
