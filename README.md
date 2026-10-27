@@ -1,7 +1,6 @@
 # agent-purge
 
 [![npm](https://img.shields.io/npm/v/agent-purge)](https://www.npmjs.com/package/agent-purge)
-[![downloads](https://img.shields.io/npm/dm/agent-purge)](https://www.npmjs.com/package/agent-purge)
 [![stars](https://img.shields.io/github/stars/ZiChuanLan/agent-purge)](https://github.com/ZiChuanLan/agent-purge/stargazers)
 [![license](https://img.shields.io/npm/l/agent-purge)](LICENSE)
 
