@@ -309,22 +309,27 @@ function modeCmd() {
 async function installCmd(verb, rest) {
 	const id = rest[0];
 	const ids = id === "--all" || !id ? Object.keys(matrix.harnesses).filter((h) => matrix.harnesses[h].class !== "unsupported") : [id];
-	const { backends: be } = await import("../backends/index.mjs");
+	// 常驻只走 lib/persist.mjs 这一个控制面（caps / Web 开关 / status 都读它的 targets）
+	const { install, uninstall, targets } = await import("../lib/persist.mjs");
+	const { createStore } = await import("../lib/personas.mjs");
+	const store = createStore(DATA);
 	for (const h of ids) {
-		const b = be[h];
-		if (!b) die(`未知 harness: ${h}`);
-		const fn = verb === "install" ? b.install : b.uninstall;
-		if (!fn) {
+		if (!matrix.harnesses[h]) die(`未知 harness: ${h}`);
+		if (!targets[h]) {
 			console.log(`${h}: 没有常驻模式（用 arm 走裸命令接管 / slash 走会话内）`);
 			continue;
 		}
-		const spec = matrix.harnesses[h];
-		const { createStore } = await import("../lib/personas.mjs");
-		const store = createStore(DATA);
-		const pid = store.activeId();
-		const r = fn({ personaPath: store.materialize(pid), personaText: store.read(pid).body.trim(), root: DATA, reason: spec.reason }) ?? {};
-		const ok = verb === "install" ? r.ok !== false : r.ok !== false;
-		console.log(`${ok ? "✓" : "✗"} ${verb} ${h}${r.file ? ` → ${r.file}` : ""}${r.note ? `  (${r.note})` : ""}`);
+		let r;
+		if (verb === "install") {
+			const pid = store.activeId();
+			if (!pid) die("还没有 persona：先 agent-purge use <id>");
+			r = install(h, { root: DATA, active: store.refreshActive() }) ?? {};
+		} else {
+			// 卸载不能依赖 persona 还在：人设删了也必须能关
+			r = uninstall(h) ?? {};
+		}
+		const ok = !r.error;
+		console.log(`${ok ? "✓" : "✗"} ${verb} ${h}${r.file ? ` → ${r.file}` : ""}${r.note ? `  (${r.note})` : ""}${r.error ? `  ${r.error}` : ""}`);
 		if (ok) setArmed(DATA, h, "install", verb === "install");
 	}
 }
@@ -720,7 +725,8 @@ function help() {
          其他家没有这个能力：/purge 展开成用户消息，bench 实测 0/2 无效，所以不提供
    注入强度：只有 sys 层算。user 层（上下文块/用户消息）在 codex/claude/opencode/grok/hermes 实测都是 0/2，一律不提供。
 
-harness: pi, opencode, codex, claude, grok, omp, hermes, zcode, antigravity, qoder, workbuddy, codebuddy
+harness: pi, opencode, opencode2, dsh, codex, claude, grok, omp, hermes, zcode, antigravity, qoder, workbuddy, codebuddy
+          opencode2 = @opencode/cli 2.x（v2 插件 API），dsh = DeepSeek Harness（cordis 插件，desktop/web/headless 三形态）。
          qoder / workbuddy 无 prompt 组装入口（提示词在服务端），只能改上下文规则文件。
 `);
 }
