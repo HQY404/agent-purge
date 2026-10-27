@@ -26,6 +26,11 @@ process.env.USERPROFILE = dir;
 process.env.HOME = dir;
 process.env.AGENT_PURGE_HOME = DATA;
 process.env.DSH_HOME = join(dir, ".dsh");
+// dsh 首次启动会给每个形态建 profile（带 package.json）；插件只往 dsh 建过的 profile 里写
+for (const p of ["desktop", "web", "headless"]) {
+	mkdirSync(join(dir, ".dsh", "profiles", p), { recursive: true });
+	writeFileSync(join(dir, ".dsh", "profiles", p, "package.json"), `{"name":"dsh-profile-${p}","private":true}`);
+}
 // XDG 故意不指向 home/.config：两家落点一旦分叉就必须被这条抓住
 process.env.XDG_CONFIG_HOME = join(dir, "xdg");
 
@@ -217,6 +222,8 @@ try {
 	await t("同名但非我们装的目录拒绝覆盖", () => {
 		const dir2 = mkdtempSync(join(tmpdir(), "ap-foreign-"));
 		try {
+			mkdirSync(join(dir2, ".dsh", "profiles", "desktop"), { recursive: true });
+			writeFileSync(join(dir2, ".dsh", "profiles", "desktop", "package.json"), '{"name":"dsh-profile-desktop"}');
 			mkdirSync(join(dir2, ".dsh", "profiles", "desktop", "node_modules", RESIDENT), { recursive: true });
 			writeFileSync(join(dir2, ".dsh", "profiles", "desktop", "node_modules", RESIDENT, "package.json"), '{"name":"someone-else"}');
 			const savedProfile = process.env.DSH_HOME;
@@ -229,6 +236,24 @@ try {
 			}
 		} finally {
 			rmSync(dir2, { recursive: true, force: true });
+		}
+	});
+	await t("没建过的 profile 不碰（dsh 会拒绝启动）", () => {
+		const savedProfile = process.env.DSH_HOME;
+		const dir4 = mkdtempSync(join(tmpdir(), "ap-live-"));
+		try {
+			// 只模拟用户跑过 desktop：web / headless 目录 dsh 还没建
+			mkdirSync(join(dir4, ".dsh", "profiles", "desktop"), { recursive: true });
+			writeFileSync(join(dir4, ".dsh", "profiles", "desktop", "package.json"), '{"name":"dsh-profile-desktop"}');
+			process.env.DSH_HOME = join(dir4, ".dsh");
+			const r = persist.install("dsh", { root: DATA, active: store.refreshActive() });
+			assert.equal(r.error ?? "", "");
+			assert.ok(existsSync(join(dir4, ".dsh", "profiles", "desktop", "node_modules", RESIDENT, "index.js")), "desktop 应该装上");
+			assert.ok(!existsSync(join(dir4, ".dsh", "profiles", "web")), "不该凭空造 web profile（dsh 才该造）");
+			assert.ok(!existsSync(join(dir4, ".dsh", "profiles", "headless")), "不该凭空造 headless profile");
+		} finally {
+			process.env.DSH_HOME = savedProfile;
+			rmSync(dir4, { recursive: true, force: true });
 		}
 	});
 	await t("patch 原本是 `[]` 时安装后仍是合法 YAML", () => {
@@ -246,6 +271,9 @@ try {
 			// desktop 先写成功；web 的 node_modules 位置上放同名文件，mkdir 必失败
 			const webProfile = join(dir3, ".dsh", "profiles", "web");
 			mkdirSync(webProfile, { recursive: true });
+			writeFileSync(join(webProfile, "package.json"), '{"name":"dsh-profile-web"}');
+			mkdirSync(join(dir3, ".dsh", "profiles", "desktop"), { recursive: true });
+			writeFileSync(join(dir3, ".dsh", "profiles", "desktop", "package.json"), '{"name":"dsh-profile-desktop"}');
 			writeFileSync(join(webProfile, "node_modules"), "not a dir");
 			process.env.DSH_HOME = join(dir3, ".dsh");
 			const deskDir = join(dir3, ".dsh", "profiles", "desktop", "node_modules", RESIDENT);
