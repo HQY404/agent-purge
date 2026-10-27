@@ -80,32 +80,14 @@ agent-purge pi --persona <id>  # 只这一轮用别的
 
 闭源桌面端（提示词在服务端或二进制里）只做原样启动，不做任何注入——`agent-purge <h>` 会明确打印原因，不会假装生效。
 
-### dsh（DeepSeek Harness）
-
-desktop / web / headless 三个形态共用一套插件：往每个 profile 的 `node_modules/agent-purge/` 放一个 cordis 插件，在 `cordis.patch.yml` 里用 `- insert` 挂上。**不改 `app.asar`，不碰安装目录，不依赖任何第三方插件。**
+### 常驻安装（install）
 
 ```bash
-agent-purge install dsh      # 写插件 + 挂载（三个 profile 一起）
-agent-purge dsh              # 按当前 persona 启动桌面版
-agent-purge uninstall dsh    # 删插件 + 剥离 patch 段，字节还原
+agent-purge install <h>      # 写进该 harness 自己的托管位置，别人启动也生效
+agent-purge uninstall <h>    # 摘掉，按字节还原
 ```
 
-装完要**重启一次 dsh**（patch 层只在启动时读）；之后换 persona、切模式、开关全是热生效，不用再重启。
-
-三个形态可以**分别开关**：Web 面板的 dsh 卡片下方有 desktop / web / headless 三个小勾，对应 `state.json` 的 `dshProfiles`。比如只在桌面版用，就把 web 和 headless 关掉；勾选只写状态文件，插件每轮现读，**不用重启**。
-
-只想临时试一下、不碰常驻 profile：`agent-purge dsh --ask "…"`（一次性会话，进程退出即清理）。
-
-#### 为什么不做「文件夹级人设」
-
-很容易想到的下一步是：同一个 dsh 里，A 项目一套人设、B 项目另一套。技术上做得到——插件在 `assemble` 时能拿到 cwd，按目录前缀匹配 persona 即可。但这是**破坏性**的设计，所以刻意不做：
-
-- **唯一真相被打破**。现在所有人设共用一个 `state.json` 指针，换一次、所有入口跟着变。按目录分叉等于把「配置」升级成「规则引擎」，之后每次改人设都要先回答「改的是哪一层」。
-- **规则会自我繁殖**。前缀匹配必然要处理嵌套目录、glob、优先级、冲突兜底。今天一个前缀，明天就要 `.agent-purge/` 文件，后天要继承与覆盖——最后没人说得清当前生效的是哪一条。
-- **跨入口语义分裂**。codex / claude / opencode 这些入口没有「项目」概念（有的是 PATH shim，有的是配置文件）。dsh 里按目录切、别处全局，用户无法解释「为什么这里是人设 A，那里是 B」。
-- **卸载不再是字节还原**。一旦引入目录规则，卸载就要判断哪些规则是用户写的、哪些是工具写的，回滚成本陡增。
-
-一句话：**agent-purge 卖的是「一份人设，所有入口，一起切换」**。做文件夹级隔离，赚的是灵活性，赔的是这句话还成不成立。真有这个需求，给每个项目放不同的人设文件、用 `agent-purge use` 手动切，比在插件里塞一套匹配引擎干净得多。
+dsh 是唯一有多个形态的：desktop / web / headless 共用一套 cordis 插件，装在各自 profile 的 `node_modules/agent-purge/`，并在 `cordis.patch.yml` 里 `- insert` 挂上，不改 `app.asar`。装完重启一次，之后热生效；三个形态还能在 Web 面板分别勾选。
 
 ## magpie 网关插件（可选）
 
@@ -151,6 +133,7 @@ matrix.json  能力矩阵
 
 - 只改提示词相关的位置，不碰二进制、不破解、不绕过任何授权。
 - 所有改动可逆：`agent-purge uninstall <h>` / `disarm` / `--mode off`。
+- 不做文件夹级人设隔离：技术上做得到，但会打破「一份人设、所有入口、一起切换」，卸载也不再是字节还原。
 - 状态只存本机 `state.json`，不上传任何数据。
 
 ## 免责与合规声明
