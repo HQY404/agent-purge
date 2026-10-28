@@ -32,6 +32,14 @@ npm i -g agent-purge     # 或 npx agent-purge web
 
 要求 Node ≥ 20，零依赖。
 
+**用 magpie 网关？** 插件不在 npm 包里，在仓库的 `magpie-plugin/` 子目录——不要指向仓库根（根 `package.json` 是 CLI，只有 `bin`，magpie 会拒绝）：
+
+```bash
+magpie plugin add /path/to/agent-purge/magpie-plugin
+```
+
+详见下文「magpie 网关插件（可选）」。
+
 **数据独立存放**，升级不会被覆盖：默认 `~/.agent-purge/`（Windows `C:\Users\<你>\.agent-purge\`），里面是 `state.json` 和 `personas/`。想换位置就设环境变量：
 
 ```bash
