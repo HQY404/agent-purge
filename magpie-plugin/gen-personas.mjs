@@ -10,7 +10,7 @@ const dir = join(home, "personas");
 
 if (!existsSync(dir)) {
 	console.error(`找不到人设目录：${dir}${env ? `\nAGENT_PURGE_HOME=${env}` : ""}`);
-	console.error("先运行一次 agent-purge（如 agent-purge ls）生成 personas；如果路径不对，检查 AGENT_PURGE_HOME 的写法。");
+	console.error("先运行一次 agent-purge web（或 agent-purge ls）生成 personas；如果路径不对，检查 AGENT_PURGE_HOME 的写法。");
 	process.exit(1);
 }
 
